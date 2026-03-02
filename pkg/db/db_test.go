@@ -11,6 +11,28 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+// CAUTION race condition if multiple testDB()'s are in use
+var hks *SQLHooks
+
+// CAUTION do not call in nested test when parent has called!
+func testDB(tb testing.TB) (db *sql.DB, h *SQLHooks, path string) {
+	tmp := tb.TempDir()
+	path = filepath.Join(tmp, "test.db")
+	var err error
+	if hks == nil {
+		hks = &SQLHooks{}
+	} else {
+		// drop any existing records
+		*hks = (*hks)[:0]
+	}
+	db, err = createDB(path, hks)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() { db.Close() })
+	return db, hks, path
+}
+
 func Test_createDB(t *testing.T) {
 	for name, td := range map[string]struct {
 		dbName string
@@ -71,7 +93,7 @@ func Test_createDB(t *testing.T) {
 			if td.init != nil {
 				td.init(t, tmp)
 			}
-			db, err := createDB(filepath.Join(tmp, td.dbName), false)
+			db, err := createDB(filepath.Join(tmp, td.dbName), nil)
 			td.check(t, tmp, db, err)
 			if db != nil {
 				if err := db.Close(); err != nil {
@@ -92,11 +114,7 @@ func Test_createDB(t *testing.T) {
 		"ttldescriptions": {"id", "desc"},
 	}
 	t.Run("table count", func(t *testing.T) {
-		tmp := t.TempDir()
-		db, err := createDB(filepath.Join(tmp, "test.db"), false)
-		if err != nil {
-			t.Fatal(err)
-		}
+		db, _, _ := testDB(t)
 		if db == nil {
 			t.Fatal("db is nil")
 		}
@@ -128,7 +146,7 @@ func Test_createDB(t *testing.T) {
 		t.Run("check table "+name, func(t *testing.T) {
 			// could be shared
 			tmp := t.TempDir()
-			db, err := createDB(filepath.Join(tmp, "test.db"), false)
+			db, err := createDB(filepath.Join(tmp, "test.db"), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,8 +206,8 @@ func TEXT NOT NULL,
 sfx TEXT,
 category TEXT,
 description INTEGER,
-FOREIGN KEY (location) REFERENCES location (id),
-FOREIGN KEY (description) REFERENCES ttlDescription (id)`,
+FOREIGN KEY (location) REFERENCES locations (id),
+FOREIGN KEY (description) REFERENCES ttlDescriptions (id)`,
 			addCommon: true,
 		},
 		{
@@ -203,16 +221,15 @@ category TEXT,
 description INTEGER,
 interesting TEXT,
 moto1978 TEXT,
-FOREIGN KEY (location) REFERENCES location (id),
-FOREIGN KEY (description) REFERENCES cmosDescription (id)`,
+FOREIGN KEY (location) REFERENCES locations (id),
+FOREIGN KEY (description) REFERENCES cmosDescriptions (id)`,
 			addCommon: true,
 		},
 		{
 			name: "locations",
 			in:   &Locations{},
 			fields: `id INTEGER PRIMARY KEY,
-name TEXT NOT NULL,
-description TEXT`,
+name TEXT NOT NULL`,
 		},
 	}
 

@@ -12,6 +12,59 @@ const (
 )
 
 func TestImportCSV(t *testing.T) {
+
+	creates := []string{
+		`CREATE TABLE ttl(
+id INTEGER PRIMARY KEY,
+qty INTEGER,
+npkg INTEGER NOT NULL,
+package TEXT,
+mounting INTEGER,
+origin TEXT,
+location INTEGER NOT NULL,
+datasheet TEXT,
+notes TEXT,
+mpfx TEXT,
+series TEXT,
+family TEXT,
+func TEXT NOT NULL,
+sfx TEXT,
+category TEXT,
+description INTEGER,
+FOREIGN KEY (location) REFERENCES locations (id),
+FOREIGN KEY (description) REFERENCES ttlDescriptions (id)
+)`,
+		`CREATE TABLE cmos(
+id INTEGER PRIMARY KEY,
+qty INTEGER,
+npkg INTEGER NOT NULL,
+package TEXT,
+mounting INTEGER,
+origin TEXT,
+location INTEGER NOT NULL,
+datasheet TEXT,
+notes TEXT,
+mpfx TEXT,
+series TEXT,
+func TEXT,
+sfx TEXT,
+category TEXT,
+description INTEGER,
+interesting TEXT,
+moto1978 TEXT,
+FOREIGN KEY (location) REFERENCES locations (id),
+FOREIGN KEY (description) REFERENCES cmosDescriptions (id)
+)`,
+		`CREATE TABLE locations(
+id INTEGER PRIMARY KEY,
+name TEXT NOT NULL
+)`,
+		`CREATE TABLE ttldescriptions(
+id INTEGER PRIMARY KEY,
+desc TEXT NOT NULL
+)`,
+	}
+
 	testdata := map[string]struct {
 		tbl        mainDBtbl
 		csv        string
@@ -21,30 +74,32 @@ func TestImportCSV(t *testing.T) {
 			tbl: &TTL{},
 			csv: ttlCSV,
 			statements: []string{
-				// note that some insert values will change if the database mock is improved
-				"SELECT id FROM ttlDescription WHERE desc='MTTL III 3-in NAND term line drv'",
-				"SELECT id FROM ttlDescription WHERE desc='quad 2-in mux tristate'",
+				"SELECT id FROM ttlDescriptions WHERE desc='MTTL III 3-in NAND term line drv'",
+				"INSERT INTO ttlDescriptions (desc) VALUES('MTTL III 3-in NAND term line drv')",
+				"SELECT id FROM ttlDescriptions WHERE desc='quad 2-in mux tristate'",
+				"INSERT INTO ttlDescriptions (desc) VALUES('quad 2-in mux tristate')",
+
 				"SELECT id FROM locations WHERE name='74 series logic box'",
-				"INSERT INTO ttlDescription (desc) VALUES('MTTL III 3-in NAND term line drv')",
-				"INSERT INTO ttlDescription (desc) VALUES('quad 2-in mux tristate')",
 				"INSERT INTO locations (name) VALUES('74 series logic box')",
-				"INSERT INTO ttl (qty,npkg,mounting,location,origin,mpfx,series,func,sfx,category,description) VALUES(?,?,?,?,?,?,?,?,?,?,?); {2,0,0,0,swico,MC,30,29,P,buf/drv/inv,0}",
-				"INSERT INTO ttl (qty,npkg,mounting,location,series,family,func,category,description) VALUES(?,?,?,?,?,?,?,?,?); {3,0,0,0,54,HC,257,mux,0}",
+
+				"INSERT INTO ttl (qty,npkg,mounting,location,origin,mpfx,series,func,sfx,category,description) VALUES(?,?,?,?,?,?,?,?,?,?,?); {2,0,0,0,swico,MC,30,29,P,buf/drv/inv,1}",
+				"INSERT INTO ttl (qty,npkg,mounting,location,series,family,func,category,description) VALUES(?,?,?,?,?,?,?,?,?); {3,0,0,1,54,HC,257,mux,2}",
 			},
 		},
 	}
 	for name, td := range testdata {
 		t.Run(name, func(t *testing.T) {
 			tbl := td.tbl
-			db := &mockDB{}
+			db, h, _ := testDB(t)
 			if err := tbl.ImportCSV(db, []byte(td.csv)); err != nil {
 				t.Fatal(err)
 			}
 			if err := tbl.Insert(db); err != nil {
 				t.Fatal(err)
 			}
-			db.checkStatements(t, td.statements)
-			// t.Errorf("\nqueries:\n  %s\nexecs:\n  %s", strings.Join(db.queries, "\n  "), strings.Join(db.execs, "\n  "))
+			stmts := creates
+			stmts = append(stmts, td.statements...)
+			h.checkStatements(t, stmts)
 		})
 	}
 }

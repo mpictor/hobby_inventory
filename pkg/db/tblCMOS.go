@@ -2,56 +2,41 @@ package db
 
 import (
 	"database/sql"
+	"iter"
 )
 
-// for ttlCreate and cmos, description will be unique to family+function
-// put in separate table?
-// 4xxx and other wide-voltage-range CMOS
-// const cmosCreate = `
-// CREATE TABLE cmos(
-// 	id integer,
-// 	mpfx bpchar,
-// 	-- ord,
-// 	series bpchar, -- really not int?
-// 	func bpchar, -- really not int?
-// 	sfx bpchar,
-// 	-- PN,
-// 	category bpchar,
-// 	qty integer,
-// 	description bpchar,
-// 	location integer,
-// 	interesting bpchar,
-// 	Motorola_1978 bpchar,
-// 	comments bpchar
-// );
-// `
-
-type CMOS struct {
+type CMOSRow struct {
 	commonFields
 	Mpfx        sql.NullString
 	Series      sql.NullString
 	Func        sql.NullString
 	Sfx         sql.NullString
 	Category    sql.NullString
-	Description sql.NullInt64 `db:"description,FK:cmosDescription:id"` // foreign key
+	Description sql.NullInt64 `db:"description,FK:cmosDescriptions:id"` // foreign key
 	Interesting sql.NullString
 	Moto1978    sql.NullString
 }
+type CMOS []CMOSRow
 
 func (*CMOS) isDbTbl() {}
-func (cmos *CMOS) ImportCSV(db DB, csv []byte) error {
+
+func (cmos *CMOS) ImportCSV(db *sql.DB, csv []byte) error {
 	// TODO
 	panic("unimplemented")
 }
-func (cmos *CMOS) Store(db DB) error {
+func (cmos *CMOS) Store(db *sql.DB) error {
 	// TODO check that existing table is empty
 	// TODO compose INSERT statements
 	panic("unimplemented")
 }
 func (cmos *CMOS) ColumnHeaders() ([]string, error) { panic("unimplemented") }
-func (cmos *CMOS) Insert(DB) error                  { panic("unimplemented") }
-func (cmos *CMOS) Render()                          { panic("unimplemented") }
-func (cmos *CMOS) Update(DB) error                  { panic("unimplemented") }
+func (cmos *CMOS) Insert(*sql.DB) error             { panic("unimplemented") }
+
+// func (cmos *CMOS) Render()                              { panic("unimplemented") }
+func (cmos *CMOS) Update(*sql.DB) error                 { panic("unimplemented") }
+func (cmos *CMOS) SetRow(db *sql.DB, kv []string) error { panic("unimplemented") }
+func (cmos CMOS) All() iter.Seq[[]string]               { panic("unimplemented") }
+func (cmos CMOS) Len() int                              { return len(cmos) }
 
 // must implement
 var _ mainDBtbl = (*CMOS)(nil)

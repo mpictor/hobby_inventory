@@ -4,15 +4,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"iter"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/jmoiron/sqlx"
-	_ "modernc.org/sqlite"
+	"github.com/qustavo/sqlhooks/v2"
+	"modernc.org/sqlite"
 )
 
-const dbPath = "../../db/db.sqlite"
+var dbPath = func() string {
+	home := os.Getenv("HOME")
+	return filepath.Join(home, "Documents", "inventory", "db", "db.sqlite")
+}()
 
 // Open existing db.
 func Open() (*sql.DB, error) { return openDB(dbPath) }
@@ -26,23 +33,28 @@ func openDB(path string) (*sql.DB, error) {
 }
 
 // Creates new db and creates tables.
-func Create(dryRun bool) (*sql.DB, error) { return createDB(dbPath, dryRun) }
+func Create() (*sql.DB, error) { return createDB(dbPath, nil) }
 
-// like Create but db path may be specified
-func createDB(path string, dryRun bool) (*sql.DB, error) {
+var registerOnce sync.Once
+
+// like Create but takes db path; hooks may be specified
+func createDB(path string, h sqlhooks.Hooks) (*sql.DB, error) {
 	if _, err := os.Stat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
 		return nil, os.ErrExist
 	}
-	var db *sql.DB
-	if dryRun {
-		// TODO mock db
-	} else {
-		var err error
-		db, err = sql.Open("sqlite", path)
-		if err != nil {
-			return nil, err
-		}
+	driver := "sqlite"
+	if h != nil {
+		driver = "sqliteWithHooks"
+		registerOnce.Do(func() {
+			sql.Register(driver, sqlhooks.Wrap(&sqlite.Driver{}, h))
+		})
 	}
+
+	db, err := sql.Open(driver, path)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := createTables(db); err != nil {
 		return nil, err
 	}
@@ -97,24 +109,36 @@ type dbTbl interface {
 // must be satisfied by any queryable, db-mapped struct
 type mainDBtbl interface {
 	dbTbl
-	ImportCSV(DB, []byte) error
-	Store(DB) error // store in db; db must have extant but empty table
 	ColumnHeaders() ([]string, error)
-	Insert(DB) error // like Store, but inserts data.
-	Render()         // human readable output, interface TBD
-	Update(DB) error // update an existing row. TBD: how to specify the exact row
+	ImportCSV(*sql.DB, []byte) error
+	Store(*sql.DB) error                  // store in db; db must have extant but empty table
+	SetRow(db *sql.DB, kv []string) error // map values to columns and set up a row with the data. must subsequently call Insert or Update.
+	Insert(*sql.DB) error                 // like Store, but adds data to db that may already contain data.
+	// Render() error                        // human readable output, interface TBD
+	Update(*sql.DB) error // update an existing row. TBD: how to specify the exact row
+	// Query(*sql.DB)(mainDBtbl,error) // use the row to compose a query
+	All() iter.Seq[[]string]
+	Len() int
 }
 
-func Query[dT mainDBtbl](db *sqlx.DB, query string) (dT, error) {
-	var res, zero dT
+func Query(db *sqlx.DB, tbl string, kvs []string) (mainDBtbl, error) {
+	mt := GetTbl(tbl)
+	if mt == nil {
+		return nil, fmt.Errorf("unknown table %s", tbl)
+	}
+	where, err := toQueryWhere(kvs)
+	if err != nil {
+		return nil, err
+	}
+	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", tbl, where)
 	rows, err := db.Queryx(query)
 	if err != nil {
-		return zero, err
+		return nil, err
 	}
-	if err := rows.StructScan(&res); err != nil {
-		return zero, err
+	if err := rows.StructScan(&mt); err != nil {
+		return nil, err
 	}
-	return res, nil
+	return mt, nil
 }
 
 // return a CREATE TABLE statement corresponding to the given table
