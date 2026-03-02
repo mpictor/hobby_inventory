@@ -104,10 +104,10 @@ func Test_createDB(t *testing.T) {
 	}
 	tableCols := map[string][]string{
 		"ttl": {
-			"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "mpfx", "series", "family", "func", "sfx", "category", "description",
+			"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "prefix", "series", "family", "func", "sfx", "category", "description",
 		},
 		"cmos": {
-			"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "mpfx", "series", "func", "sfx", "category", "description", "interesting", "moto1978",
+			"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "prefix", "series", "func", "sfx", "category", "description", "interesting", "moto1978",
 		},
 		"locations": {"id", "name", "description"},
 		// "descriptions": {"id", "tblname", "col", "desc"},
@@ -179,7 +179,7 @@ func Test_createDB(t *testing.T) {
 }
 
 const commonFieldsTxt = `id INTEGER PRIMARY KEY,
-qty INTEGER,
+qty INTEGER NOT NULL,
 npkg INTEGER NOT NULL,
 package TEXT,
 mounting INTEGER,
@@ -199,7 +199,7 @@ func Test_structToCreate(t *testing.T) {
 		{
 			name: "ttl",
 			in:   &TTL{},
-			fields: `mpfx TEXT,
+			fields: `prefix TEXT,
 series TEXT,
 family TEXT,
 func TEXT NOT NULL,
@@ -213,7 +213,7 @@ FOREIGN KEY (description) REFERENCES ttlDescriptions (id)`,
 		{
 			name: "cmos",
 			in:   &CMOS{},
-			fields: `mpfx TEXT,
+			fields: `prefix TEXT,
 series TEXT,
 func TEXT,
 sfx TEXT,

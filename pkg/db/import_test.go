@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	ttlCSV = `"mpfx","series","family","function","sfx","PN","category","qty","pkg","description","origin","location","notes"
+	ttlCSV = `"prefix","series","family","function","sfx","PN","category","qty","pkg","description","origin","location","notes"
 "MC",30,,29,"P","MC3029P","buf/drv/inv",2,,"MTTL III 3-in NAND term line drv","swico",,
 ,54,"HC",257,,"54HC257","mux",3,,"quad 2-in mux tristate",,"74 series logic box",
 `
@@ -16,7 +16,7 @@ func TestImportCSV(t *testing.T) {
 	creates := []string{
 		`CREATE TABLE ttl(
 id INTEGER PRIMARY KEY,
-qty INTEGER,
+qty INTEGER NOT NULL,
 npkg INTEGER NOT NULL,
 package TEXT,
 mounting INTEGER,
@@ -24,7 +24,7 @@ origin TEXT,
 location INTEGER NOT NULL,
 datasheet TEXT,
 notes TEXT,
-mpfx TEXT,
+prefix TEXT,
 series TEXT,
 family TEXT,
 func TEXT NOT NULL,
@@ -36,7 +36,7 @@ FOREIGN KEY (description) REFERENCES ttlDescriptions (id)
 )`,
 		`CREATE TABLE cmos(
 id INTEGER PRIMARY KEY,
-qty INTEGER,
+qty INTEGER NOT NULL,
 npkg INTEGER NOT NULL,
 package TEXT,
 mounting INTEGER,
@@ -44,7 +44,7 @@ origin TEXT,
 location INTEGER NOT NULL,
 datasheet TEXT,
 notes TEXT,
-mpfx TEXT,
+prefix TEXT,
 series TEXT,
 func TEXT,
 sfx TEXT,
@@ -82,7 +82,7 @@ desc TEXT NOT NULL
 				"SELECT id FROM locations WHERE name='74 series logic box'",
 				"INSERT INTO locations (name) VALUES('74 series logic box')",
 
-				"INSERT INTO ttl (qty,npkg,mounting,location,origin,mpfx,series,func,sfx,category,description) VALUES(?,?,?,?,?,?,?,?,?,?,?); {2,0,0,0,swico,MC,30,29,P,buf/drv/inv,1}",
+				"INSERT INTO ttl (qty,npkg,mounting,location,origin,prefix,series,func,sfx,category,description) VALUES(?,?,?,?,?,?,?,?,?,?,?); {2,0,0,0,swico,MC,30,29,P,buf/drv/inv,1}",
 				"INSERT INTO ttl (qty,npkg,mounting,location,series,family,func,category,description) VALUES(?,?,?,?,?,?,?,?,?); {3,0,0,1,54,HC,257,mux,2}",
 			},
 		},

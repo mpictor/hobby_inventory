@@ -86,15 +86,24 @@ func (c commonFields) Strings(ret []string) []string {
 	if ret == nil {
 		ret = make([]string, 0, 9)
 	}
-	ret[0] = strconv.FormatInt(c.ID, 10)
-	ret[1] = strconv.FormatInt(int64(c.Qty), 10)
-	ret[2] = strconv.FormatInt(c.NPkg, 10)
-	ret[3] = c.Package.String // FIXME assumes the string will be empty whenever Valid is false
-	ret[4] = c.Mounting.String()
-	ret[5] = c.Origin.String
-	ret[6] = strconv.FormatInt(c.Location, 10) // TODO table lookup
-	ret[7] = c.Datasheet.String
-	ret[8] = c.Notes.String
+	return append(ret,
+		strconv.FormatInt(c.ID, 10),
+		strconv.FormatInt(int64(c.Qty), 10),
+		strconv.FormatInt(c.NPkg, 10),
+		c.Package.String, // FIXME assumes the string will be empty whenever Valid is false
+		c.Mounting.String(),
+		c.Origin.String,
+		strconv.FormatInt(c.Location, 10), // TODO table lookup
+		c.Datasheet.String,
+		c.Notes.String,
+	)
+}
+
+func (c commonFields) ColumnHeaders(ret []string) []string {
+	if ret == nil {
+		ret = make([]string, 0, 9)
+	}
+	ret = append(ret, "id", "qty", "n/pkg", "pkg", "mounting", "origin", "location", "datasheet", "notes")
 	return ret
 }
 

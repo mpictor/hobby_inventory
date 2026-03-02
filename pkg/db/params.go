@@ -4,14 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 func ParamsToRow(db *sql.DB, tblName string, args []string) (mainDBtbl, error) {
-	// inv add ttl pn=F74AHCTLS999UB qty=55 fmax=1.21JigoHertz pkg=SO-8765 loc=nowhere
-	// fields, err := fieldsForTable(inst, tbl)
-	// if err != nil {
-	// 	return err
-	// }
 	tbl := GetTbl(tblName)
 	if tbl == nil {
 		return nil, fmt.Errorf("%s is not a valid table name", tblName)
@@ -82,7 +78,7 @@ nextKW:
 				if op == "=" && strings.Contains(v, "%") {
 					op = "LIKE"
 				}
-				if strings.Contains(v, " ") /*|| strings.Contains(v, "%")*/ {
+				if strings.IndexFunc(v, unicode.IsDigit) == -1 {
 					v = "'" + v + "'"
 				}
 				where = append(where, fmt.Sprintf("%s %s %s", k, op, v))

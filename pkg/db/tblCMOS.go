@@ -7,7 +7,7 @@ import (
 
 type CMOSRow struct {
 	commonFields
-	Mpfx        sql.NullString
+	Prefix      sql.NullString
 	Series      sql.NullString
 	Func        sql.NullString
 	Sfx         sql.NullString
@@ -29,8 +29,8 @@ func (cmos *CMOS) Store(db *sql.DB) error {
 	// TODO compose INSERT statements
 	panic("unimplemented")
 }
-func (cmos *CMOS) ColumnHeaders() ([]string, error) { panic("unimplemented") }
-func (cmos *CMOS) Insert(*sql.DB) error             { panic("unimplemented") }
+func (cmos *CMOS) ColumnHeaders() []string { panic("unimplemented") }
+func (cmos *CMOS) Insert(*sql.DB) error    { panic("unimplemented") }
 
 // func (cmos *CMOS) Render()                              { panic("unimplemented") }
 func (cmos *CMOS) Update(*sql.DB) error                 { panic("unimplemented") }

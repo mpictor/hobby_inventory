@@ -18,6 +18,8 @@ var queryCmd = &ff.Command{
 func init() { rootCmd.Subcommands = append(rootCmd.Subcommands, queryCmd) }
 
 func execQuery(ctx context.Context, args []string) error {
+	db.Verbose = verbose
+
 	dbi, err := db.Open()
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +16,8 @@ import (
 	"github.com/qustavo/sqlhooks/v2"
 	"modernc.org/sqlite"
 )
+
+var Verbose bool
 
 var dbPath = func() string {
 	home := os.Getenv("HOME")
@@ -70,9 +73,6 @@ func createDB(path string, h sqlhooks.Hooks) (*sql.DB, error) {
 // func exportCSV() error {}
 
 func createTables(db *sql.DB) error {
-	// tbls := []string{
-	// 	descCreate,
-	// }
 	for _, s := range []dbTbl{
 		&TTL{},
 		&CMOS{},
@@ -83,9 +83,6 @@ func createTables(db *sql.DB) error {
 		if err != nil {
 			return err
 		}
-		// 	tbls = append(tbls, tbl)
-		// }
-		// for _, tbl := range tbls {
 		res, err := db.Exec(tbl)
 		if err != nil {
 			return fmt.Errorf("creating %s: %w", tbl, err)
@@ -109,7 +106,7 @@ type dbTbl interface {
 // must be satisfied by any queryable, db-mapped struct
 type mainDBtbl interface {
 	dbTbl
-	ColumnHeaders() ([]string, error)
+	ColumnHeaders() []string
 	ImportCSV(*sql.DB, []byte) error
 	Store(*sql.DB) error                  // store in db; db must have extant but empty table
 	SetRow(db *sql.DB, kv []string) error // map values to columns and set up a row with the data. must subsequently call Insert or Update.
@@ -131,12 +128,14 @@ func Query(db *sqlx.DB, tbl string, kvs []string) (mainDBtbl, error) {
 		return nil, err
 	}
 	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", tbl, where)
-	rows, err := db.Queryx(query)
-	if err != nil {
+	if Verbose {
+		log.Printf("query: %s", query)
+	}
+	if err := db.Select(mt, query); err != nil {
 		return nil, err
 	}
-	if err := rows.StructScan(&mt); err != nil {
-		return nil, err
+	if Verbose {
+		log.Printf("result: %d rows", mt.Len())
 	}
 	return mt, nil
 }

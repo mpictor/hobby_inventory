@@ -10,7 +10,7 @@ import (
 )
 
 type Rows interface {
-	ColumnHeaders() ([]string, error)
+	ColumnHeaders() []string
 	Len() int
 	All() iter.Seq[[]string]
 }
@@ -20,12 +20,9 @@ type Rows interface {
 func Render(rows Rows) error {
 	var columns []table.Column
 	tr := make([]table.Row, 0, rows.Len())
-	chs, err := rows.ColumnHeaders()
-	if err != nil {
-		return err
-	}
+	chs := rows.ColumnHeaders()
 	for _, ch := range chs {
-		columns = append(columns, table.Column{Title: ch /*TODO width*/})
+		columns = append(columns, table.Column{Title: ch, Width: 8 /*TODO correct width*/})
 	}
 	for r := range rows.All() {
 		tr = append(tr, r)
@@ -34,7 +31,7 @@ func Render(rows Rows) error {
 		table.WithColumns(columns),
 		table.WithRows(tr),
 		table.WithFocused(true),
-		// table.WithHeight(7),
+		table.WithHeight(7),
 		// table.WithWidth(42),
 	)
 

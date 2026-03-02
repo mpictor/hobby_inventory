@@ -26,7 +26,7 @@ type TTLRow struct {
 
 func (r TTLRow) insert() (string, []any, error) {
 	cols, vals := r.commonFields.insert()
-	insertNullStr(&r.Mpfx, "mpfx", &cols, &vals)
+	insertNullStr(&r.Prefix, "prefix", &cols, &vals)
 	insertNullStr(&r.Series, "series", &cols, &vals)
 	insertNullStr(&r.Family, "family", &cols, &vals)
 	cols = append(cols, "func")
@@ -61,7 +61,7 @@ func (r TTLRow) Strings() []string {
 
 	// TODO assumes NullString.String always empty when !Valid
 	strs = append(strs,
-		r.Mpfx.String, r.Series.String, r.Family.String, r.Func, r.Sfx.String,
+		r.Prefix.String, r.Series.String, r.Family.String, r.Func, r.Sfx.String,
 		r.Category.String, strconv.FormatInt(r.Description.Int64, 10))
 
 	return strs
@@ -78,7 +78,7 @@ func (r *TTLRow) parsePN(pn string) error {
 		return nil
 	}
 	if idx > 0 {
-		r.Mpfx = sql.NullString{Valid: true, String: remain[:idx]}
+		r.Prefix = sql.NullString{Valid: true, String: remain[:idx]}
 		remain = remain[idx:]
 	}
 	// suffix
@@ -127,13 +127,6 @@ func (r *TTLRow) parsePN(pn string) error {
 	return nil
 }
 
-// func (r TTLRow) renderWidths() []int {
-// 	panic("unimplemented")
-// }
-// func (r TTLRow) render(widths []int) error {
-// 	panic("unimplemented")
-// }
-
 type TTL []TTLRow
 
 func (*TTL) isDbTbl() {}
@@ -177,7 +170,7 @@ func ttlRow(db *sql.DB, rec []string) (TTLRow, error) {
 		}
 		switch i {
 		case 0:
-			tr.Mpfx = sql.NullString{String: v, Valid: true}
+			tr.Prefix = sql.NullString{String: v, Valid: true}
 		case 1:
 			tr.Series = sql.NullString{String: v, Valid: true}
 		case 2:
@@ -227,9 +220,14 @@ func (ttl *TTL) Store(db *sql.DB) error {
 	// TODO transaction?
 	return ttl.Insert(db)
 }
-func (ttl *TTL) ColumnHeaders() ([]string, error) { panic("unimplemented") }
+func (ttl *TTL) ColumnHeaders() []string {
+	strs := make([]string, 0, 16)
+	strs = commonFields{}.ColumnHeaders(strs)
+	strs = append(strs, "prefix", "series", "family", "func", "suffix", "category", "description")
+	return strs
+}
+
 func (ttl *TTL) Insert(db *sql.DB) error {
-	// var stmts []string
 	rows := 0
 	for _, r := range *ttl {
 		stmt, vals, err := r.insert()
@@ -237,7 +235,6 @@ func (ttl *TTL) Insert(db *sql.DB) error {
 			return err
 		}
 
-		// stmts = append(stmts, ins)
 		res, err := db.Exec(stmt, vals...)
 		if err != nil {
 			return err
@@ -253,27 +250,6 @@ func (ttl *TTL) Insert(db *sql.DB) error {
 	}
 	return nil
 }
-
-// // TODO https://github.com/charmbracelet/bubbletea/blob/main/examples/table/main.go
-// func (ttl *TTL) Render() error {
-// 	hdrs, err := ttl.ColumnHeaders()
-// 	if err != nil {
-// 		return err
-// 	}
-// 	// colWidths := make([]int, len(hdrs))
-// 	// for _, r := range *ttl {
-// 	// 	rw := r.renderWidths()
-// 	// 	for i, w := range rw {
-// 	// 		colWidths[i] = max(colWidths[i], w)
-// 	// 	}
-// 	// }
-// 	// for _, r := range *ttl {
-// 	// 	if err := r.render(colWidths); err != nil {
-// 	// 		return err
-// 	// 	}
-// 	// }
-// 	return nil
-// }
 
 func (ttl TTL) All() iter.Seq[[]string] {
 	return func(yield func([]string) bool) {
@@ -311,7 +287,7 @@ func (ttl *TTL) SetRow(db *sql.DB, kvs []string) error {
 	for k, v := range params {
 		switch k {
 		case "prefix":
-			row.Mpfx = sql.NullString{Valid: true, String: strings.ToUpper(v)}
+			row.Prefix = sql.NullString{Valid: true, String: strings.ToUpper(v)}
 		case "series":
 			row.Series = sql.NullString{Valid: true, String: strings.ToUpper(v)}
 		case "family":

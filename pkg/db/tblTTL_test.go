@@ -8,15 +8,16 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
+func ns(s string) sql.NullString { return sql.NullString{Valid: len(s) > 0, String: s} }
+
 func TestTTLRow_parsePN(t *testing.T) {
-	ns := func(s string) sql.NullString { return sql.NullString{Valid: len(s) > 0, String: s} }
 	for name, td := range map[string]struct {
 		want      TTLRow
 		expectErr bool
 	}{
 		"MC3029p": {
 			want: TTLRow{
-				Mpfx:   ns("MC"),
+				Prefix: ns("MC"),
 				Series: ns("30"),
 				Func:   "29",
 				Sfx:    ns("P"),
@@ -31,7 +32,7 @@ func TestTTLRow_parsePN(t *testing.T) {
 		},
 		"DM74LS02N": {
 			want: TTLRow{
-				Mpfx:   ns("DM"),
+				Prefix: ns("DM"),
 				Series: ns("74"),
 				Family: ns("LS"),
 				Func:   "02",
@@ -47,7 +48,7 @@ func TestTTLRow_parsePN(t *testing.T) {
 		},
 		"SN75150P": {
 			want: TTLRow{
-				Mpfx:   ns("SN"),
+				Prefix: ns("SN"),
 				Series: ns("75"),
 				Func:   "150",
 				Sfx:    ns("P"),
@@ -68,7 +69,6 @@ func TestTTLRow_parsePN(t *testing.T) {
 }
 
 func TestTTL_SetRow(t *testing.T) {
-	ns := func(s string) sql.NullString { return sql.NullString{Valid: len(s) > 0, String: s} }
 	for name, td := range map[string]struct {
 		kvs       []string
 		want      TTLRow
@@ -91,7 +91,7 @@ func TestTTL_SetRow(t *testing.T) {
 					Package:  ns("SO-8765"),
 					Location: 1,
 				},
-				Mpfx:   ns("F"),
+				Prefix: ns("F"),
 				Series: ns("74"),
 				Family: ns("AHCTLS"),
 				Func:   "999",
@@ -119,5 +119,45 @@ func TestTTL_SetRow(t *testing.T) {
 			}
 			// TODO
 		})
+	}
+}
+
+func TestTTLRow_Strings(t *testing.T) {
+	tr := TTLRow{
+		commonFields: commonFields{
+			Qty:      55,
+			Package:  ns("SO-8765"),
+			Location: 1,
+		},
+		Prefix: ns("F"),
+		Series: ns("74"),
+		Family: ns("AHCTLS"),
+		Func:   "999",
+		Sfx:    ns("UB"),
+	}
+	want := []string{
+		"0", "55", "0", "SO-8765",
+		"unspecified", "", "1", "",
+		"", "F", "74", "AHCTLS",
+		"999", "UB", "", "0",
+	}
+
+	got := tr.Strings()
+	if d := cmp.Diff(want, got); len(d) > 0 {
+		t.Fatalf("result differs: --want ++got\n%s", d)
+	}
+}
+func TestTTL_ch(t *testing.T) {
+	ttl := &TTL{}
+	want := []string{
+		"id", "qty", "n/pkg", "pkg", "mounting", "origin",
+		"location", "datasheet", "notes", "prefix", "series",
+		"family", "func", "suffix", "category", "description",
+	}
+
+	ch := ttl.ColumnHeaders()
+
+	if d := cmp.Diff(want, ch); len(d) > 0 {
+		t.Fatalf("result differs: --want ++got\n%s", d)
 	}
 }
