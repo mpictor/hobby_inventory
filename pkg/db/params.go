@@ -22,15 +22,16 @@ func ParamsToRow(db *sql.DB, tblName string, args []string) (mainDBtbl, error) {
 type paramMap map[string]string
 
 // turns slice of key=value into map[key]value, and performs
-// substitutions in keyAliases
-func toParamMap(kvs []string) paramMap {
+// substitutions in keyAliases if requested
+func ToParamMap(kvs []string, substitute bool) paramMap {
 	m := make(paramMap)
 	for _, kv := range kvs {
 		k, v, ok := strings.Cut(kv, "=")
 		if !ok || len(k) == 0 || len(v) == 0 {
 			continue
 		}
-		if nk, ok := paramAliases[k]; ok {
+		k = strings.ToLower(k)
+		if nk, ok := paramAliases[k]; ok && substitute {
 			k = nk
 		}
 		m[k] = v
@@ -43,20 +44,20 @@ var paramAliases = map[string]string{
 	"part":       "pn",
 	"partnumber": "pn",
 
-	"cat":   "category",
-	"ds":    "datasheet",
-	"desc":  "description",
-	"fam":   "family",
-	"fn":    "function",
-	"func":  "function",
-	"loc":   "location",
-	"mount": "mounting",
-	"mtg":   "mounting",
-	"n/pkg": "npkg",
-	"mpfx":  "prefix",
-	"pfx":   "prefix",
-	"pkg":   "package",
-	"sfx":   "suffix",
+	"cat":         "category",
+	"ds":          "datasheet",
+	"description": "desc",
+	"fam":         "family",
+	"fn":          "func",
+	"function":    "func",
+	"loc":         "location",
+	"mount":       "mounting",
+	"mtg":         "mounting",
+	"n/pkg":       "npkg",
+	"mpfx":        "prefix",
+	"pfx":         "prefix",
+	"pkg":         "package",
+	"sfx":         "suffix",
 }
 
 // turns parameter statements into the WHERE clause of a query
@@ -67,7 +68,7 @@ nextKW:
 	for _, kv := range kvs {
 		for _, op := range validOperators {
 			if idx := strings.Index(kv, op); idx > -1 {
-				k := kv[:idx]
+				k := strings.ToLower(kv[:idx])
 				v := kv[idx+len(op):]
 				if subst, isAlias := paramAliases[k]; isAlias {
 					k = subst
@@ -78,7 +79,8 @@ nextKW:
 				if op == "=" && strings.Contains(v, "%") {
 					op = "LIKE"
 				}
-				if strings.IndexFunc(v, unicode.IsDigit) == -1 {
+				notDigit := func(r rune) bool { return !unicode.IsDigit(r) }
+				if strings.IndexFunc(v, notDigit) > -1 {
 					v = "'" + v + "'"
 				}
 				where = append(where, fmt.Sprintf("%s %s %s", k, op, v))

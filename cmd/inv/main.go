@@ -63,13 +63,17 @@ func main() {
 	rootCmd.Flags = rootFlags
 	// }
 
-	initCmd := &ff.Command{
+	ic := &initCmd{}
+	icFlags := ff.NewFlagSet("init")
+	icFlags.BoolVar(&ic.force, 'f', "force", "delete db if it exists")
+
+	rootCmd.Subcommands = append(rootCmd.Subcommands, &ff.Command{
 		Name:      "init",
-		ShortHelp: "initialize new database (NOTE: flags other than --verbose and --dryrun are ignored)",
-		Usage:     "init",
-		Exec:      doInitCmd,
-	}
-	rootCmd.Subcommands = append(rootCmd.Subcommands, initCmd)
+		ShortHelp: "initialize new database",
+		Usage:     "init [-f]",
+		Exec:      ic.Do,
+		Flags:     icFlags,
+	})
 
 	for _, c := range rootCmd.Subcommands {
 		if c.Flags == nil {
@@ -93,8 +97,11 @@ func main() {
 	}
 }
 
-func doInitCmd(ctx context.Context, args []string) error {
-	// TODO check that no flags are specified
-	_, err := db.Create()
+type initCmd struct {
+	force bool
+}
+
+func (i *initCmd) Do(ctx context.Context, args []string) error {
+	_, err := db.Create(i.force)
 	return err
 }

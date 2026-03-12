@@ -25,7 +25,7 @@ func testDB(tb testing.TB) (db *sql.DB, h *SQLHooks, path string) {
 		// drop any existing records
 		*hks = (*hks)[:0]
 	}
-	db, err = createDB(path, hks)
+	db, err = createDB(path, false, hks)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func Test_createDB(t *testing.T) {
 			if td.init != nil {
 				td.init(t, tmp)
 			}
-			db, err := createDB(filepath.Join(tmp, td.dbName), nil)
+			db, err := createDB(filepath.Join(tmp, td.dbName), false, nil)
 			td.check(t, tmp, db, err)
 			if db != nil {
 				if err := db.Close(); err != nil {
@@ -103,15 +103,17 @@ func Test_createDB(t *testing.T) {
 		})
 	}
 	tableCols := map[string][]string{
-		"ttl": {
-			"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "prefix", "series", "family", "func", "sfx", "category", "description",
+		"logic": {
+			// "id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "prefix", "series", "family", "func", "sfx", "category", "description",
+			"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "attrs", "notes", "vrange", "prefix", "series", "family", "func", "sfx", "category", "description",
 		},
-		"cmos": {
-			"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "prefix", "series", "func", "sfx", "category", "description", "interesting", "moto1978",
-		},
-		"locations": {"id", "name", "description"},
+		// "cmos": {
+		// 	"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "prefix", "series", "func", "sfx", "category", "description",
+		// 	"interesting", "moto1978",
+		// },
+		"locations": {"id", "name"}, //, "description"},
 		// "descriptions": {"id", "tblname", "col", "desc"},
-		"ttldescriptions": {"id", "desc"},
+		"logicdescriptions": {"id", "desc"},
 	}
 	t.Run("table count", func(t *testing.T) {
 		db, _, _ := testDB(t)
@@ -146,7 +148,7 @@ func Test_createDB(t *testing.T) {
 		t.Run("check table "+name, func(t *testing.T) {
 			// could be shared
 			tmp := t.TempDir()
-			db, err := createDB(filepath.Join(tmp, "test.db"), nil)
+			db, err := createDB(filepath.Join(tmp, "test.db"), false, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -186,6 +188,7 @@ mounting INTEGER,
 origin TEXT,
 location INTEGER NOT NULL,
 datasheet TEXT,
+attrs BLOB,
 notes TEXT,
 `
 
@@ -197,9 +200,10 @@ func Test_structToCreate(t *testing.T) {
 		addCommon bool
 	}{
 		{
-			name: "ttl",
-			in:   &TTL{},
-			fields: `prefix TEXT,
+			name: "logic",
+			in:   &Logic{},
+			fields: `vrange INTEGER,
+prefix TEXT,
 series TEXT,
 family TEXT,
 func TEXT NOT NULL,
@@ -207,24 +211,24 @@ sfx TEXT,
 category TEXT,
 description INTEGER,
 FOREIGN KEY (location) REFERENCES locations (id),
-FOREIGN KEY (description) REFERENCES ttlDescriptions (id)`,
+FOREIGN KEY (description) REFERENCES logicDescriptions (id)`,
 			addCommon: true,
 		},
-		{
-			name: "cmos",
-			in:   &CMOS{},
-			fields: `prefix TEXT,
-series TEXT,
-func TEXT,
-sfx TEXT,
-category TEXT,
-description INTEGER,
-interesting TEXT,
-moto1978 TEXT,
-FOREIGN KEY (location) REFERENCES locations (id),
-FOREIGN KEY (description) REFERENCES cmosDescriptions (id)`,
-			addCommon: true,
-		},
+		// 		{
+		// 			name: "cmos",
+		// 			in:   &CMOS{},
+		// 			fields: `prefix TEXT,
+		// series TEXT,
+		// func TEXT,
+		// sfx TEXT,
+		// category TEXT,
+		// description INTEGER,
+		// interesting TEXT,
+		// moto1978 TEXT,
+		// FOREIGN KEY (location) REFERENCES locations (id),
+		// FOREIGN KEY (description) REFERENCES cmosDescriptions (id)`,
+		// 			addCommon: true,
+		// 		},
 		{
 			name: "locations",
 			in:   &Locations{},
@@ -255,8 +259,21 @@ name TEXT NOT NULL`,
 }
 
 var allTableStructs = map[string]dbTbl{
-	"ttl":             &TTL{},
-	"cmos":            &CMOS{},
-	"locations":       &Locations{},
-	"ttldescriptions": &TTLdescriptions{},
+	"logic": &Logic{},
+	// "cmos":            &CMOS{},
+	"locations":         &Locations{},
+	"logicdescriptions": &logicDescriptions{},
+}
+
+func TestQuery(t *testing.T) {
+	db, err := openDB("../../db/db.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// db, _, _ := testDB(t)
+	rows, err := Query(db, "logic", []string{"func=29"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Error(rows)
 }

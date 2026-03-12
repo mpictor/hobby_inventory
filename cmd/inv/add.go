@@ -26,18 +26,20 @@ to list parameters existing in given table.
 func init() { rootCmd.Subcommands = append(rootCmd.Subcommands, addCmd) }
 
 func execAdd(ctx context.Context, args []string) error {
-	instance, err := db.Open()
+	dbi, err := db.Open()
 	if err != nil {
 		return err
 	}
 	if len(args) < 2 {
 		return fmt.Errorf("too few arguments - see help")
 	}
+	defer dbi.Close()
+
 	tbl := args[0]
-	vals, err := db.ParamsToRow(instance, tbl, args[1:])
+	vals, err := db.ParamsToRow(dbi, tbl, args[1:])
 	if err != nil {
 		return err
 	}
-	err = vals.Insert(instance)
+	err = vals.Insert(dbi)
 	return err
 }

@@ -2,37 +2,78 @@ package render
 
 import (
 	"iter"
+	"log"
 
 	"charm.land/bubbles/v2/table"
-
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
+var Verbose bool
+
 type Rows interface {
-	ColumnHeaders() []string
+	ColumnHeaders(cols []int) []string
 	Len() int
-	All() iter.Seq[[]string]
+	All(cols []int) iter.Seq[interface{ Strings() []string }]
 }
+
+// type RowStrings interface {
+// 	Strings() []string
+// }
 
 // much of this copied from https://github.com/charmbracelet/bubbletea/blob/main/examples/table/main.go
 
-func Render(rows Rows) error {
+func Render(rows Rows, ord []int) error {
 	var columns []table.Column
 	tr := make([]table.Row, 0, rows.Len())
-	chs := rows.ColumnHeaders()
-	for _, ch := range chs {
-		columns = append(columns, table.Column{Title: ch, Width: 8 /*TODO correct width*/})
+	chs := rows.ColumnHeaders(ord)
+	if Verbose {
+		log.Print(chs)
 	}
-	for r := range rows.All() {
-		tr = append(tr, r)
+	// find widths
+	widths := make([]int, len(chs))
+	for r := range rows.All(ord) {
+		for i, str := range r.Strings() {
+			widths[i] = max(widths[i], len(str))
+		}
+	}
+	totalWidth := 0
+	// drop empty cols
+	displayedCols := 0
+	for i, ch := range chs {
+		if widths[i] == 0 {
+			if Verbose {
+				log.Printf("drop col %d %s", i, ch)
+			}
+			continue
+		}
+		w := max(widths[i], len(ch))
+		columns = append(columns, table.Column{Title: ch, Width: w})
+		totalWidth += w + 2
+		displayedCols++
+	}
+	for r := range rows.All(ord) {
+		dispRow := make([]string, displayedCols)
+		j := 0
+		for i, w := range widths {
+			if w > 0 {
+				dispRow[j] = r.Strings()[i]
+				j++
+			}
+		}
+		if Verbose {
+			log.Print(dispRow)
+		}
+		tr = append(tr, dispRow)
 	}
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithRows(tr),
 		table.WithFocused(true),
 		table.WithHeight(7),
-		// table.WithWidth(42),
+		// NOTE undersize width affects data rows but not column headers!
+		// not sure why it can't compute based on column width
+		table.WithWidth(totalWidth),
 	)
 
 	s := table.DefaultStyles()

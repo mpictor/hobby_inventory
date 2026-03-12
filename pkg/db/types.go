@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"unicode"
@@ -18,6 +19,7 @@ type commonFields struct {
 	Origin    sql.NullString // freeform, where I got it from - digikey, estate, etc
 	Location  int64          `db:"location,FK:locations:id"` // maps to db table locations
 	Datasheet sql.NullString // local file name, or databook and page
+	Attrs     sqliteBlob     // additional attrs, json-encoded
 	Notes     sql.NullString
 	// Description - not in commonFields, as multiple TTL or CMOS will share one description
 }
@@ -33,6 +35,9 @@ func (c commonFields) insert() (cols []string, vals []any) {
 	insertNullStr(&c.Package, "package", &cols, &vals)
 	insertNullStr(&c.Origin, "origin", &cols, &vals)
 	insertNullStr(&c.Datasheet, "datasheet", &cols, &vals)
+	if c.Attrs != nil {
+		panic("attrs unimplemented")
+	}
 	insertNullStr(&c.Notes, "notes", &cols, &vals)
 
 	return cols, vals
@@ -82,28 +87,99 @@ func (c *commonFields) setParams(db *sql.DB, m paramMap) (paramMap, error) {
 	}
 	return remain, nil
 }
-func (c commonFields) Strings(ret []string) []string {
-	if ret == nil {
-		ret = make([]string, 0, 9)
+
+// takes a null string and returns a string
+// may be unnecessary - not sure if Valid can ever be false while the string is non-empty
+func strFromNS(s sql.NullString) string {
+	if !s.Valid {
+		return ""
 	}
-	return append(ret,
-		strconv.FormatInt(c.ID, 10),
-		strconv.FormatInt(int64(c.Qty), 10),
-		strconv.FormatInt(c.NPkg, 10),
-		c.Package.String, // FIXME assumes the string will be empty whenever Valid is false
-		c.Mounting.String(),
-		c.Origin.String,
-		strconv.FormatInt(c.Location, 10), // TODO table lookup
-		c.Datasheet.String,
-		c.Notes.String,
-	)
+	return s.String
 }
 
-func (c commonFields) ColumnHeaders(ret []string) []string {
-	if ret == nil {
-		ret = make([]string, 0, 9)
+// takes a string and returns a NullString
+func nsFromStr(s string) sql.NullString {
+	if len(s) > 0 {
+		return sql.NullString{Valid: true, String: s}
 	}
-	ret = append(ret, "id", "qty", "n/pkg", "pkg", "mounting", "origin", "location", "datasheet", "notes")
+	return sql.NullString{}
+}
+
+func (c commonFields) Strings(ord []int, ret []string) []string {
+	if ret == nil {
+		ret = make([]string, 10)
+	}
+	npkg := ""
+	if c.NPkg > 0 {
+		npkg = strconv.FormatInt(c.NPkg, 10)
+	}
+	for i, o := range ord {
+		switch o {
+		case 0:
+			ret[i] = strconv.FormatInt(c.ID, 10)
+		case 1:
+			ret[i] = strconv.FormatInt(int64(c.Qty), 10)
+		case 2:
+			ret[i] = npkg
+		case 3:
+			ret[i] = strFromNS(c.Package) // FIXME assumes the string will be empty whenever Valid is false
+		case 4:
+			ret[i] = c.Mounting.String()
+		case 5:
+			ret[i] = strFromNS(c.Origin)
+		case 6:
+			ret[i] = strconv.FormatInt(c.Location, 10) // TODO table lookup
+		case 7:
+			ret[i] = strFromNS(c.Datasheet)
+		case 8:
+			ret[i] = strFromNS(c.Notes)
+		case 9:
+			ret[i] = c.Attrs.String()
+		}
+	}
+	// return append(ret,
+	// 	strconv.FormatInt(c.ID, 10),
+	// 	strconv.FormatInt(int64(c.Qty), 10),
+	// 	npkg,
+	// 	c.Package.String, // FIXME assumes the string will be empty whenever Valid is false
+	// 	c.Mounting.String(),
+	// 	c.Origin.String,
+	// 	strconv.FormatInt(c.Location, 10), // TODO table lookup
+	// 	c.Datasheet.String,
+	// 	c.Notes.String,
+	// )
+	return ret
+}
+
+func (c commonFields) ColumnHeaders(ord []int, ret []string) []string {
+	if ret == nil {
+		ret = make([]string, len(ord))
+	}
+	for i, o := range ord {
+		switch o {
+		case 0:
+			ret[i] = "id"
+		case 1:
+			ret[i] = "qty"
+		case 2:
+			ret[i] = "n/pkg"
+		case 3:
+			ret[i] = "pkg"
+		case 4:
+			ret[i] = "mounting"
+		case 5:
+			ret[i] = "origin"
+		case 6:
+			ret[i] = "loc"
+		case 7:
+			ret[i] = "ds"
+		case 8:
+			ret[i] = "notes"
+		case 9:
+			ret[i] = "attrs"
+		}
+	}
+
 	return ret
 }
 
@@ -138,6 +214,16 @@ func ParseQty(s string) (Qty, error) {
 		return QtyUnknown, err
 	}
 	return Qty(q), nil
+}
+func (q Qty) String() string {
+	switch q {
+	case QtyMany:
+		return "many"
+	case QtyUnknown:
+		return "?"
+	default:
+		return strconv.FormatInt(int64(q), 10)
+	}
 }
 
 func (c *commonFields) setPkg(pkg string) error {
@@ -174,13 +260,13 @@ const (
 )
 
 var mtgStrs = map[Mounting]string{
-	MtgUnspecified: "unspecified",
-	MtgUnknown:     "unknown",
-	MtgSMT:         "SMT",
-	MtgTH:          "TH",
-	MtgPanel:       "panel",
-	MtgChassis:     "chassis",
-	MtgOther:       "other",
+	// MtgUnspecified: "-",
+	MtgUnknown: "unknown",
+	MtgSMT:     "SMT",
+	MtgTH:      "TH",
+	MtgPanel:   "panel",
+	MtgChassis: "chassis",
+	MtgOther:   "other",
 }
 
 func (m Mounting) String() string { return mtgStrs[m] }
@@ -219,16 +305,16 @@ func (Locations) isDbTbl() {}
 type auxTbl int
 
 const (
-	tblTTLdescriptions auxTbl = iota
+	tblLogicDescriptions auxTbl = iota
 	tblLocations
 )
 
 var auxTblNames = map[auxTbl]string{
-	tblTTLdescriptions: "ttlDescriptions",
-	tblLocations:       "locations",
+	tblLogicDescriptions: "logicDescriptions",
+	tblLocations:         "locations",
 }
 
-// retrieve a value from an auxiliary table, e.g. location or ttlDescription
+// retrieve a value from an auxiliary table, e.g. location or logicDescriptions
 func auxTblVal(db *sql.DB, tbl auxTbl, f, v string) (int64, error) {
 	tname, ok := auxTblNames[tbl]
 	if !ok {
@@ -272,11 +358,46 @@ func auxTblVal(db *sql.DB, tbl auxTbl, f, v string) (int64, error) {
 // returns go type corresponding to the given db table, or nil
 func GetTbl(name string) mainDBtbl {
 	switch strings.ToLower(name) {
-	case "ttl":
-		return &TTL{}
-	case "cmos":
-		return &CMOS{}
+	case "ttl", "cmos", "logic":
+		return &Logic{}
 		// TODO
 	}
+	return nil
+}
+
+var TblOrder = map[string][]int{
+	"logic": []int{0, 1, 2, 9, 10, 11, 12, 13, 14, 15, 3, 4, 5, 6, 7, 8, 16, 17},
+}
+var TblDefaultSelect = map[string]string{
+	"logic": `
+SELECT logic.id AS id,qty,npkg,vrange,prefix AS pfx,series,family AS fam,
+	func,sfx,category,logicd.desc AS desc,package AS pkg,mounting,
+	origin,locs.name AS loc,datasheet AS ds,attrs,notes
+FROM logic 
+LEFT JOIN locations AS locs ON logic.location=locs.id
+LEFT JOIN logicDescriptions AS logicd ON logic.description=logicd.id
+WHERE ?
+ORDER BY logic.series ASC,logic.func ASC,logic.family ASC,logic.qty DESC
+`,
+}
+
+type DefaultRow interface{ Strings() []string }
+
+type sqliteBlob map[string]string
+
+func (s *sqliteBlob) String() string {
+	out := make([]string, 0, len(*s))
+	for k, v := range *s {
+		out = append(out, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(out, ", ")
+}
+
+func (s *sqliteBlob) Scan(a any) error {
+	if a == nil {
+		return nil
+	}
+	log.Fatalf("unimplemented. a=%#v", a)
+	// TODO
 	return nil
 }

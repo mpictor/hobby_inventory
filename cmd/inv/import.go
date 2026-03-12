@@ -18,6 +18,10 @@ var importCmd = &ff.Command{
 example:
   inv import ttl path/to/ttl.csv
 adds to the ttl table from given csv. columns must match expectations!
+
+To export all spreadsheet tabs, you can do
+  soffice --convert-to csv:"Text - txt - csv (StarCalc)":44,34,UTF8,1,,0,false,true,false,false,false,-1 components.ods 
+This saves each tab as a separate CSV.
 `,
 }
 
@@ -35,17 +39,19 @@ func execImport(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
+	defer dbi.Close()
+
 	data, err := os.ReadFile(args[1])
 	if err != nil {
 		return fmt.Errorf("reading csv: %w", err)
 	}
-	if err := tbl.ImportCSV(dbi, data); err != nil {
+	db.Verbose = verbose
+	if err := tbl.ImportCSV(dbi, args[0], data); err != nil {
 		return fmt.Errorf("importing csv: %w", err)
 	}
 	if err := tbl.Store(dbi); err != nil {
 		return fmt.Errorf("storing in database: %w", err)
 	}
 
-	// if err := tbl.ImportCSV(db, []byte(td.csv)); err != nil {
 	return nil
 }

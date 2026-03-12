@@ -36,14 +36,23 @@ func openDB(path string) (*sql.DB, error) {
 }
 
 // Creates new db and creates tables.
-func Create() (*sql.DB, error) { return createDB(dbPath, nil) }
+func Create(overwrite bool) (*sql.DB, error) { return createDB(dbPath, overwrite, nil) }
 
 var registerOnce sync.Once
 
 // like Create but takes db path; hooks may be specified
-func createDB(path string, h sqlhooks.Hooks) (*sql.DB, error) {
+func createDB(path string, overwrite bool, h sqlhooks.Hooks) (*sql.DB, error) {
+	exists := false
 	if _, err := os.Stat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+		exists = true
+	}
+	if exists && !overwrite {
 		return nil, os.ErrExist
+	}
+	if overwrite {
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
 	}
 	driver := "sqlite"
 	if h != nil {
@@ -74,10 +83,10 @@ func createDB(path string, h sqlhooks.Hooks) (*sql.DB, error) {
 
 func createTables(db *sql.DB) error {
 	for _, s := range []dbTbl{
-		&TTL{},
-		&CMOS{},
+		&Logic{},
+		// &CMOS{},
 		Locations{},
-		TTLdescriptions{},
+		logicDescriptions{},
 	} {
 		tbl, err := structToCreate(s)
 		if err != nil {
@@ -106,38 +115,102 @@ type dbTbl interface {
 // must be satisfied by any queryable, db-mapped struct
 type mainDBtbl interface {
 	dbTbl
-	ColumnHeaders() []string
-	ImportCSV(*sql.DB, []byte) error
-	Store(*sql.DB) error                  // store in db; db must have extant but empty table
-	SetRow(db *sql.DB, kv []string) error // map values to columns and set up a row with the data. must subsequently call Insert or Update.
-	Insert(*sql.DB) error                 // like Store, but adds data to db that may already contain data.
-	// Render() error                        // human readable output, interface TBD
-	Update(*sql.DB) error // update an existing row. TBD: how to specify the exact row
-	// Query(*sql.DB)(mainDBtbl,error) // use the row to compose a query
-	All() iter.Seq[[]string]
+	ColumnHeaders(ord []int) []string
+	ImportCSV(db *sql.DB, tbl string, data []byte) error // import csv. Table is passed to differentiate cmos/ttl csv (merged into logic)
+	Store(*sql.DB) error                                 // store in db; db must have extant but empty table
+	SetRow(db *sql.DB, kv []string) error                // map values to columns and set up a row with the data. must subsequently call Insert or Update.
+	Insert(*sql.DB) error                                // like Store, but adds data to db that may already contain data.
+	Update(*sql.DB) error                                // update an existing row. TBD: how to specify the exact row
 	Len() int
+
+	// All(ord []int) iter.Seq[[]string] // ord: selects columns to show. TODO better in SELECT, but that means major changes...
 }
 
-func Query(db *sqlx.DB, tbl string, kvs []string) (mainDBtbl, error) {
-	mt := GetTbl(tbl)
-	if mt == nil {
-		return nil, fmt.Errorf("unknown table %s", tbl)
+// func Query(db *sqlx.DB, tbl string, kvs []string) (mainDBtbl, error) {
+// 	mt := GetTbl(tbl)
+// 	if mt == nil {
+// 		return nil, fmt.Errorf("unknown table %s", tbl)
+// 	}
+// 	where, err := toQueryWhere(kvs)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", tbl, where)
+// 	if Verbose {
+// 		log.Printf("query: %s", query)
+// 	}
+// 	if err := db.Select(mt, query); err != nil {
+// 		return nil, err
+// 	}
+// 	if Verbose {
+// 		log.Printf("result: %d rows", mt.Len())
+// 	}
+// 	return mt, nil
+// }
+
+type tRows struct {
+	cols []string
+	// rows [][]string
+	rows []DefaultRow
+}
+
+// FIXME cols param ignored
+func (tr tRows) ColumnHeaders(cols []int) []string { return tr.cols }
+func (tr tRows) Len() int                          { return len(tr.rows) }
+func (tr tRows) All(cols []int) iter.Seq[interface{ Strings() []string }] {
+	return func(yield func(interface{ Strings() []string }) bool) {
+		for _, r := range tr.rows {
+			if !yield(r) {
+				return
+			}
+		}
 	}
+}
+
+func Query(db *sql.DB, tbl string, kvs []string) (tRows, error) {
 	where, err := toQueryWhere(kvs)
 	if err != nil {
-		return nil, err
+		return tRows{}, err
 	}
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", tbl, where)
+	query := TblDefaultSelect[tbl]
+
+	// FIXME FIXME turn this into an actual safe query
+	query = strings.Replace(query, "?", where, 1)
+
 	if Verbose {
 		log.Printf("query: %s", query)
 	}
-	if err := db.Select(mt, query); err != nil {
-		return nil, err
+
+	sRows, err := db.Query(query)
+	if err != nil {
+		return tRows{}, fmt.Errorf("error %w executing query %s", err, query)
+	}
+	cols, err := sRows.Columns()
+	if err != nil {
+		return tRows{}, err
 	}
 	if Verbose {
-		log.Printf("result: %d rows", mt.Len())
+		log.Printf("query: cols %v", cols)
 	}
-	return mt, nil
+	tr := tRows{
+		cols: cols,
+	}
+	// for sRows.Next() {
+	// 	row := logicOutRow{}
+	// 	if err := sRows.Scan(&row); err != nil {
+	// 		return tRows{}, err
+	// 	}
+	// 	tr.rows = append(tr.rows, row)
+	// }
+	rows := []logicOutRow{}
+	if err := sqlx.StructScan(sRows, &rows); err != nil {
+		return tRows{}, fmt.Errorf("StructScan: %w", err)
+	}
+	for _, r := range rows {
+		tr.rows = append(tr.rows, r)
+	}
+	// tr.rows=([]DefaultRow)rows
+	return tr, nil
 }
 
 // return a CREATE TABLE statement corresponding to the given table
@@ -150,7 +223,7 @@ func structToCreate[dT dbTbl](tbl dT) (string, error) {
 	if len(name) == 0 {
 		return "", fmt.Errorf("cannot use unnamed type")
 	}
-	if typ.Kind() == reflect.Slice {
+	if typ.Kind() == reflect.Slice { // TODO what about []byte
 		typ = typ.Elem()
 	}
 	if typ.Kind() != reflect.Struct {
@@ -188,6 +261,8 @@ var (
 	typIntNull  = reflect.TypeFor[sql.NullInt64]()
 	typQty      = reflect.TypeFor[Qty]()
 	typMounting = reflect.TypeFor[Mounting]()
+	typVRange   = reflect.TypeFor[VRange]()
+	typBlob     = reflect.TypeFor[sqliteBlob]()
 )
 
 // get field name and type; also returns foreign key statement when
@@ -196,6 +271,7 @@ func fieldNameType(fld reflect.StructField) (col string, fkey string, err error)
 	var name, typ string
 
 	name = strings.ToLower(fld.Name)
+	// TODO []byte
 	switch fld.Type.Kind() {
 	case reflect.String:
 		typ = "TEXT NOT NULL"
@@ -209,8 +285,10 @@ func fieldNameType(fld reflect.StructField) (col string, fkey string, err error)
 		switch fld.Type {
 		case typStrNull:
 			typ = "TEXT"
-		case typIntNull, typQty, typMounting:
+		case typIntNull, typQty, typMounting, typVRange:
 			typ = "INTEGER"
+		case typBlob:
+			typ = "BLOB"
 		default:
 			return "", "", fmt.Errorf("unhandled field type %q", fld.Type)
 		}
