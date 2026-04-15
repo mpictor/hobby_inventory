@@ -274,14 +274,14 @@ func Query(db *sql.DB, tbl CompTbl, kvs []string) (tRows, error) {
 	if rows == nil {
 		return tRows{}, fmt.Errorf("no table defined for %s", tbl)
 	}
-
-	tr := tRows{
-		cols: colXlate(tbl, cols),
-	}
 	if err := rows.Scan(sRows); err != nil {
 		return tRows{}, fmt.Errorf("StructScan: %w", err)
 	}
 
+	// WTF BUG changing 'cols' breaks sqlx.StructScan?!
+	tr := tRows{
+		cols: colXlate(tbl, cols),
+	}
 	for r := range rows.All() {
 		tr.rows = append(tr.rows, r)
 	}
