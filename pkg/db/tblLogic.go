@@ -7,14 +7,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"log"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type LogicRow struct {
-	commonFields
+	commonFieldsIn
 	VRange      VRange
 	Prefix      sql.NullString // SN, CD, etc
 	Series      sql.NullString // 54, 74, etc
@@ -25,23 +28,23 @@ type LogicRow struct {
 	Description sql.NullInt64  `db:"description,FK:logicDescriptions:id"` // foreign key
 }
 
-func (l LogicRow) insert() (string, []any, error) {
-	cols, vals := l.commonFields.insert()
+func (lr LogicRow) insert() (string, []any, error) {
+	cols, vals := lr.commonFieldsIn.insert()
 	cols = append(cols, "vrange")
-	vals = append(vals, l.VRange)
-	insertNullStr(&l.Prefix, "prefix", &cols, &vals)
-	insertNullStr(&l.Series, "series", &cols, &vals)
-	insertNullStr(&l.Family, "family", &cols, &vals)
+	vals = append(vals, lr.VRange)
+	insertNullStr(lr.Prefix, "prefix", &cols, &vals)
+	insertNullStr(lr.Series, "series", &cols, &vals)
+	insertNullStr(lr.Family, "family", &cols, &vals)
 	cols = append(cols, "func")
-	vals = append(vals, l.Func)
-	insertNullStr(&l.Sfx, "sfx", &cols, &vals)
-	insertNullStr(&l.Category, "category", &cols, &vals)
-	if l.Description.Valid {
+	vals = append(vals, lr.Func)
+	insertNullStr(lr.Sfx, "sfx", &cols, &vals)
+	insertNullStr(lr.Category, "category", &cols, &vals)
+	if lr.Description.Valid {
 		cols = append(cols, "description")
-		vals = append(vals, l.Description.Int64)
+		vals = append(vals, lr.Description.Int64)
 	}
 	if len(cols) == 0 {
-		return "", nil, fmt.Errorf("nothing to insert for %s", l)
+		return "", nil, fmt.Errorf("nothing to insert for %s", lr)
 	}
 	ph := "?"
 	ph += strings.Repeat(",?", len(vals)-1)
@@ -50,8 +53,8 @@ func (l LogicRow) insert() (string, []any, error) {
 }
 
 // TODO make pretty
-func (l LogicRow) String() string {
-	j, err := json.Marshal(l)
+func (lr LogicRow) String() string {
+	j, err := json.Marshal(lr)
 	if err != nil {
 		panic(err)
 	}
@@ -89,7 +92,7 @@ func (l LogicRow) String() string {
 // 	return strs
 // }
 
-func (l *LogicRow) parsePN(pn string) error {
+func (lr *LogicRow) parsePN(pn string) error {
 	// TODO support cmos
 	remain := strings.ToUpper(pn)
 	notDigit := func(r rune) bool { return !unicode.IsDigit(r) }
@@ -97,18 +100,18 @@ func (l *LogicRow) parsePN(pn string) error {
 	idx := strings.IndexFunc(remain, unicode.IsDigit)
 	if idx < 0 {
 		// no digits, put it all in Func??
-		l.Func = remain
+		lr.Func = remain
 		return nil
 	}
 	if idx > 0 {
-		l.Prefix = sql.NullString{Valid: true, String: remain[:idx]}
+		lr.Prefix = sql.NullString{Valid: true, String: remain[:idx]}
 		remain = remain[idx:]
 	}
 	// suffix
 	idx = strings.LastIndexFunc(remain, unicode.IsDigit)
 	if idx > -1 && len(remain) > idx+1 {
 		idx++
-		l.Sfx = sql.NullString{Valid: true, String: remain[idx:]}
+		lr.Sfx = sql.NullString{Valid: true, String: remain[idx:]}
 		remain = remain[:idx]
 	}
 	// series/family/function
@@ -125,26 +128,26 @@ func (l *LogicRow) parsePN(pn string) error {
 		fam := remain[:idx]
 		fun := remain[idx:]
 		if len(ser) > 0 && len(fun) > 0 {
-			l.Series = sql.NullString{Valid: true, String: ser}
-			l.Family = sql.NullString{Valid: true, String: fam}
-			l.Func = fun
+			lr.Series = sql.NullString{Valid: true, String: ser}
+			lr.Family = sql.NullString{Valid: true, String: fam}
+			lr.Func = fun
 			return nil
 		}
 	}
 	// no family, separate series and function
 	// known families are all 2 digit
 	if len(remain) <= 2 {
-		l.Func = remain
+		lr.Func = remain
 		return nil
 	}
 	switch remain[:2] {
 	case "30", "54", "64", "74", "75":
 		// recognized
-		l.Series = sql.NullString{Valid: true, String: remain[:2]}
-		l.Func = remain[2:]
+		lr.Series = sql.NullString{Valid: true, String: remain[:2]}
+		lr.Func = remain[2:]
 	default:
 		// not recognized, stuff it all in func
-		l.Func = remain
+		lr.Func = remain
 	}
 
 	return nil
@@ -152,7 +155,7 @@ func (l *LogicRow) parsePN(pn string) error {
 
 type Logic []LogicRow
 
-func (*Logic) isDbTbl() {}
+func (*Logic) TableName() string { return "logic" }
 
 func (lgc *Logic) ImportCSV(db *sql.DB, tbl string, in []byte) error {
 	r := csv.NewReader(bytes.NewReader(in))
@@ -200,14 +203,14 @@ func allEmpty(r []string) bool {
 }
 
 var logicTranslation = map[string]struct {
-	cols       map[int]int
+	cols       map[int]int // remap columns. k is src, v is dest
 	fixup      func(*LogicRow, []string)
 	headerRows int
 }{
 	// 0     1      2      3       4    5   6      7    8   9           10     11       12
 	// mpfx,series,family,function,sfx,PN,category,qty,pkg,description,origin,location,notes
 	"ttl": {
-		cols: map[int]int{0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12},
+		//cols: map[int]int{0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12},
 		fixup: func(lr *LogicRow, rec []string) {
 			lr.VRange = VrTTL
 		},
@@ -229,6 +232,7 @@ var logicTranslation = map[string]struct {
 	},
 }
 
+// create a LogicRow from a csv row
 func logicRow(db *sql.DB, tbl string, rec []string) (LogicRow, error) {
 	var tr, zero LogicRow
 	if len(rec) == 0 {
@@ -250,23 +254,23 @@ func logicRow(db *sql.DB, tbl string, rec []string) (LogicRow, error) {
 			if ok {
 				i = j
 			}
-			// otherwise just use j
+			// otherwise just use i
 		}
 
 		switch i {
 		case 0:
-			tr.Prefix = sql.NullString{String: v, Valid: true}
+			tr.Prefix = nsFromStr(v)
 		case 1:
-			tr.Series = sql.NullString{String: v, Valid: true}
+			tr.Series = nsFromStr(v)
 		case 2:
-			tr.Family = sql.NullString{String: v, Valid: true}
+			tr.Family = nsFromStr(v)
 		case 3:
 			tr.Func = v
 		case 4:
-			tr.Sfx = sql.NullString{String: v, Valid: true}
+			tr.Sfx = nsFromStr(v)
 		// case 5: PN (discard)
 		case 6:
-			tr.Category = sql.NullString{String: v, Valid: true}
+			tr.Category = nsFromStr(v)
 		case 7:
 			q, err := ParseQty(v)
 			if err != nil {
@@ -274,8 +278,10 @@ func logicRow(db *sql.DB, tbl string, rec []string) (LogicRow, error) {
 			}
 			tr.Qty = q
 		case 8:
-			tr.Package = sql.NullString{String: v, Valid: true}
+			tr.Package = nsFromStr(v)
 		case 9:
+			// dual, quad, hex, octal, etc in description -> n/pkg
+			tr.descToNpkg(v)
 			desc, err := auxTblVal(db, tblLogicDescriptions, "desc", v)
 			if err != nil {
 				return zero, err
@@ -284,7 +290,7 @@ func logicRow(db *sql.DB, tbl string, rec []string) (LogicRow, error) {
 				tr.Description = sql.NullInt64{Int64: desc, Valid: true}
 			}
 		case 10:
-			tr.Origin = sql.NullString{String: v, Valid: true}
+			tr.Origin = nsFromStr(v)
 		case 11:
 			loc, err := auxTblVal(db, tblLocations, "name", v)
 			if err != nil {
@@ -292,19 +298,11 @@ func logicRow(db *sql.DB, tbl string, rec []string) (LogicRow, error) {
 			}
 			tr.Location = loc
 		case 13:
+			// FIXME I don't like this special case
+			// FIXME overrides, e.g. '1986: 6-84 (233)'
 			tr.Datasheet = nsFromStr("moto78:" + v)
 		case 12:
-			// concatenate any additional cells (TODO improve?)
-			var v []string
-			for _, r := range rec[12:] {
-				r = strings.TrimSpace(r)
-				if len(r) > 0 {
-					v = append(v, r)
-				}
-			}
-			if len(v) > 0 {
-				tr.Notes = sql.NullString{String: strings.Join(v, ";"), Valid: true}
-			}
+			tr.additionalFields(rec[12:])
 		}
 	}
 	if xlate.fixup != nil {
@@ -313,34 +311,74 @@ func logicRow(db *sql.DB, tbl string, rec []string) (LogicRow, error) {
 	return tr, nil
 }
 
+// handle any additional cells. most get appended to notes, but some go to ds or attrs
+func (lr *LogicRow) additionalFields(fields []string) {
+	var v []string
+outer:
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if len(f) == 0 {
+			continue
+		}
+		// first, look for datasheet references
+		for _, pfx := range []string{"NS76"} {
+			if strings.HasPrefix(f, pfx) {
+				lr.Datasheet = nsJoin(lr.Datasheet, "; ", f)
+				continue outer
+			}
+		}
+		// next, check for attrs (two forms)
+		if k, v, ok := strings.Cut(f, "~="); ok {
+			if lr.Attrs == nil {
+				lr.Attrs = make(sqliteBlob)
+			}
+			lr.Attrs[k] = "~" + v
+			continue
+		}
+		if k, v, ok := strings.Cut(f, "="); ok {
+			if lr.Attrs == nil {
+				lr.Attrs = make(sqliteBlob)
+			}
+			lr.Attrs[k] = v
+			continue
+		}
+		// if none of the above match, put it in notes
+		v = append(v, f)
+	}
+	if len(v) > 0 {
+		lr.Notes = nsJoin(lr.Notes, ";", v...)
+	}
+}
+
 func (lgc *Logic) Store(db *sql.DB) error {
 	// TODO check that existing table is empty
 	// TODO transaction?
 	return lgc.Insert(db)
 }
-func (lgc *Logic) ColumnHeaders(ord []int) []string {
-	strs := make([]string, len(ord))
-	strs = commonFields{}.ColumnHeaders(ord, strs)
-	for i, o := range ord {
-		switch o {
-		case 9:
-			strs[i] = "pfx"
-		case 10:
-			strs[i] = "series"
-		case 11:
-			strs[i] = "fam"
-		case 12:
-			strs[i] = "func"
-		case 13:
-			strs[i] = "sfx"
-		case 14:
-			strs[i] = "category"
-		case 15:
-			strs[i] = "desc"
-		}
-	}
-	return strs
-}
+
+// func (lgc *Logic) ColumnHeaders(ord []int) []string {
+// 	strs := make([]string, len(ord))
+// 	strs = commonFields{}.columnHeaders(ord, strs)
+// 	for i, o := range ord {
+// 		switch o {
+// 		case 9:
+// 			strs[i] = "pfx"
+// 		case 10:
+// 			strs[i] = "series"
+// 		case 11:
+// 			strs[i] = "fam"
+// 		case 12:
+// 			strs[i] = "func"
+// 		case 13:
+// 			strs[i] = "sfx"
+// 		case 14:
+// 			strs[i] = "category"
+// 		case 15:
+// 			strs[i] = "desc"
+// 		}
+// 	}
+// 	return strs
+// }
 
 func (lgc *Logic) Insert(db *sql.DB) error {
 	rows := 0
@@ -375,15 +413,16 @@ func (lgc *Logic) Insert(db *sql.DB) error {
 //			}
 //		}
 //	}
+
 func (lgc Logic) Len() int { return len(lgc) }
 
-func (lgc *Logic) Update(*sql.DB) error { panic("unimplemented") }
+// func (lgc *Logic) Update(*sql.DB) error {  }
 
 func (lgc *Logic) SetRow(db *sql.DB, kvs []string) error {
-	params := ToParamMap(kvs, true)
+	params := ToParamMap(kvs, true, false)
 
 	row := LogicRow{}
-	params, err := row.commonFields.setParams(db, params)
+	params, err := row.commonFieldsIn.setParams(db, params)
 	if err != nil {
 		return err
 	}
@@ -393,7 +432,7 @@ func (lgc *Logic) SetRow(db *sql.DB, kvs []string) error {
 				return fmt.Errorf("pn/partnumber key is mutually exclusive with part number sub-fields such as %q", f)
 			}
 		}
-		if err := row.parsePN(v); err != nil {
+		if err := row.parsePN(v.Val); err != nil {
 			return err
 		}
 		delete(params, "pn")
@@ -402,19 +441,19 @@ func (lgc *Logic) SetRow(db *sql.DB, kvs []string) error {
 	for k, v := range params {
 		switch k {
 		case "prefix":
-			row.Prefix = sql.NullString{Valid: true, String: strings.ToUpper(v)}
+			row.Prefix = sql.NullString{Valid: true, String: strings.ToUpper(v.Val)}
 		case "series":
-			row.Series = sql.NullString{Valid: true, String: strings.ToUpper(v)}
+			row.Series = sql.NullString{Valid: true, String: strings.ToUpper(v.Val)}
 		case "family":
-			row.Family = sql.NullString{Valid: true, String: strings.ToUpper(v)}
+			row.Family = sql.NullString{Valid: true, String: strings.ToUpper(v.Val)}
 		case "function":
-			row.Func = v
+			row.Func = v.Val
 		case "suffix":
-			row.Sfx = sql.NullString{Valid: true, String: strings.ToUpper(v)}
+			row.Sfx = sql.NullString{Valid: true, String: strings.ToUpper(v.Val)}
 		case "category":
-			row.Category = sql.NullString{Valid: true, String: strings.ToUpper(v)}
+			row.Category = sql.NullString{Valid: true, String: strings.ToUpper(v.Val)}
 		case "description":
-			n, err := auxTblVal(db, tblLogicDescriptions, "desc", v)
+			n, err := auxTblVal(db, tblLogicDescriptions, "desc", v.Val)
 			if err != nil {
 				return fmt.Errorf("setting description: %w", err)
 			}
@@ -441,7 +480,7 @@ type logicDescriptions []logicDesc
 // must implement
 var _ dbTbl = (logicDescriptions)(nil)
 
-func (logicDescriptions) isDbTbl() {}
+func (logicDescriptions) TableName() string { return "logic" }
 
 type VRange int
 
@@ -468,6 +507,7 @@ func (vr VRange) String() string {
 
 // logic data, for output
 type logicOutRow struct {
+	// TODO commonFieldsOut
 	Id              int
 	Qty             Qty
 	NPkg            int
@@ -510,3 +550,23 @@ func (l logicOutRow) Strings() []string {
 
 // func (l *logicOutRow) Scan(a any) error { }
 // var _ sql.Scanner = (*logicOutRow)(nil)
+
+type logicOutput []logicOutRow
+
+func (lo *logicOutput) isDbOut() {}
+
+func (lo *logicOutput) All() iter.Seq[DefaultRow] {
+	return func(yield func(r DefaultRow) bool) {
+		for _, r := range *lo {
+			if !yield(r) {
+				return
+			}
+		}
+	}
+}
+
+func (lo *logicOutput) Scan(r *sql.Rows) error {
+	return sqlx.StructScan(r, lo)
+}
+
+var _ dbOut = (*logicOutput)(nil)

@@ -14,6 +14,7 @@ import (
 //
 // query:
 // inv q t:bip v:234 ft:456 pol:n
+//   TODO update the below to match impl / extend impl to match
 //   -- searches table:transistors_bipolar for v>=234 and ft>=456, polarity npn
 //   -- spaces delimit k-v pairs; key is single char, separated from val by (optional?) colon
 //   -- can't easily use > or < because shell

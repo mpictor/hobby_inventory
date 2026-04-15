@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"iter"
 	"log"
 
@@ -23,6 +24,7 @@ type Rows interface {
 
 // much of this copied from https://github.com/charmbracelet/bubbletea/blob/main/examples/table/main.go
 
+// FIXME ord has no effect - remove?
 func Render(rows Rows, ord []int) error {
 	var columns []table.Column
 	tr := make([]table.Row, 0, rows.Len())
@@ -33,6 +35,9 @@ func Render(rows Rows, ord []int) error {
 	// find widths
 	widths := make([]int, len(chs))
 	for r := range rows.All(ord) {
+		if len(r.Strings()) != len(chs) {
+			return fmt.Errorf("length mismatch: %d vs %d\n%#v \n%#v", len(chs), len(r.Strings()), chs, r.Strings())
+		}
 		for i, str := range r.Strings() {
 			widths[i] = max(widths[i], len(str))
 		}

@@ -20,10 +20,10 @@ func testDB(tb testing.TB) (db *sql.DB, h *SQLHooks, path string) {
 	path = filepath.Join(tmp, "test.db")
 	var err error
 	if hks == nil {
-		hks = &SQLHooks{}
+		hks = &SQLHooks{trace: true}
 	} else {
 		// drop any existing records
-		*hks = (*hks)[:0]
+		hks.Clear()
 	}
 	db, err = createDB(path, false, hks)
 	if err != nil {
@@ -102,18 +102,21 @@ func Test_createDB(t *testing.T) {
 			}
 		})
 	}
+	commonCols := []string{"id", "qty", "npkg", "package", "mounting", "origin", "datasheet", "attrs", "notes", "location"}
 	tableCols := map[string][]string{
-		"logic": {
-			// "id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "prefix", "series", "family", "func", "sfx", "category", "description",
-			"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "attrs", "notes", "vrange", "prefix", "series", "family", "func", "sfx", "category", "description",
-		},
-		// "cmos": {
-		// 	"id", "qty", "npkg", "package", "mounting", "origin", "location", "datasheet", "notes", "prefix", "series", "func", "sfx", "category", "description",
-		// 	"interesting", "moto1978",
-		// },
-		"locations": {"id", "name"}, //, "description"},
-		// "descriptions": {"id", "tblname", "col", "desc"},
+		"locations":         {"id", "name"},
 		"logicdescriptions": {"id", "desc"},
+		"logic":             {"vrange", "prefix", "series", "family", "func", "sfx", "category", "description"},
+		"transistors":       {"pn", "type", "doping", "maxv", "maxa", "maxf", "gain", "altpn"},
+		"power":             {"pn", "category", "maxv", "maxa", "description"},
+		"diode_tvs":         {"pn", "category", "maxv", "maxa", "recoverytime", "description"},
+		"line_drv":          {"mpfx", "series", "function", "sfx", "n_tx", "n_rx", "proto", "drivestrength", "description"},
+		"opamps":            {"pn", "category", "class", "gainbandwidthproduct", "slew", "minvcc", "railrail", "description"},
+		"opto":              {"pn", "category", "description", "maxf"},
+		"others":            {"pn", "category", "description"},
+		"passive":           {"pn", "function", "type", "value", "rating", "storage"},
+		"tmr_osc_pll":       {"pn", "category", "description", "maxf"},
+		"dev_kits":          {"kitpn", "devicepn", "connskt", "desc", "mfg", "type"},
 	}
 	t.Run("table count", func(t *testing.T) {
 		db, _, _ := testDB(t)
@@ -155,6 +158,9 @@ func Test_createDB(t *testing.T) {
 			if db == nil {
 				t.Fatal("db is nil")
 			}
+			if name != "locations" && name != "logicdescriptions" {
+				cols = append(commonCols, cols...)
+			}
 			rows, err := db.Query("SELECT * FROM " + name + " LIMIT 1")
 			if err != nil {
 				t.Fatal(err)
@@ -186,10 +192,10 @@ npkg INTEGER NOT NULL,
 package TEXT,
 mounting INTEGER,
 origin TEXT,
-location INTEGER NOT NULL,
 datasheet TEXT,
 attrs BLOB,
 notes TEXT,
+location INTEGER NOT NULL,
 `
 
 func Test_structToCreate(t *testing.T) {
@@ -214,21 +220,6 @@ FOREIGN KEY (location) REFERENCES locations (id),
 FOREIGN KEY (description) REFERENCES logicDescriptions (id)`,
 			addCommon: true,
 		},
-		// 		{
-		// 			name: "cmos",
-		// 			in:   &CMOS{},
-		// 			fields: `prefix TEXT,
-		// series TEXT,
-		// func TEXT,
-		// sfx TEXT,
-		// category TEXT,
-		// description INTEGER,
-		// interesting TEXT,
-		// moto1978 TEXT,
-		// FOREIGN KEY (location) REFERENCES locations (id),
-		// FOREIGN KEY (description) REFERENCES cmosDescriptions (id)`,
-		// 			addCommon: true,
-		// 		},
 		{
 			name: "locations",
 			in:   &Locations{},
@@ -259,10 +250,19 @@ name TEXT NOT NULL`,
 }
 
 var allTableStructs = map[string]dbTbl{
-	"logic": &Logic{},
-	// "cmos":            &CMOS{},
 	"locations":         &Locations{},
 	"logicdescriptions": &logicDescriptions{},
+	"logic":             &Logic{},
+	"transistors":       &Transistors{},
+	"power":             &PowerDevs{},
+	"diode_tvs":         &Diode_TVSDevs{},
+	"line_drv":          &Line_Drv{},
+	"opamps":            &Opamps{},
+	"opto":              &OptoDevs{},
+	"others":            &Others{},
+	"passive":           &PassiveDevs{},
+	"tmr_osc_pll":       &Tmr_Osc_PllDevs{},
+	"dev_kits":          &Dev_kits{},
 }
 
 func TestQuery(t *testing.T) {
@@ -271,9 +271,73 @@ func TestQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	// db, _, _ := testDB(t)
-	rows, err := Query(db, "logic", []string{"func=29"})
+	rows, err := Query(db, CTPassive, []string{"value:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Error(rows)
+	// FIXME what did I plan for this test??
+	t.Error(strings.Join(rows.cols, ", "))
+	for _, r := range rows.rows {
+		t.Error(strings.Join(r.Strings(), ", "))
+	}
+}
+
+// func TestTblOrder(t *testing.T) {
+// 	for name, val := range allTableStructs {
+// 		t.Run(name, func(t *testing.T) {
+// 			ct, _ := ParseCompTbl(name)
+// 			_, expect := val.(mainDBtbl)
+// 			_, present := TblOrder[ct]
+// 			if expect != present {
+// 				t.Fatalf("TblOrder[%q]: expect=%t, present=%t", name, expect, present)
+// 			}
+// 		})
+// 	}
+// }
+
+func TestTblDefaultSelect(t *testing.T) {
+	for name, val := range allTableStructs {
+		t.Run(name, func(t *testing.T) {
+			_, expect := val.(mainDBtbl)
+			ct, err := ParseCompTbl(name)
+			if err != nil && expect {
+				t.Fatal(err)
+			}
+			_, present := TblDefaultSelect[ct]
+			if expect != present {
+				t.Fatalf("TblDefaultSelect[%q]: expect=%t, present=%t", name, expect, present)
+			}
+		})
+	}
+}
+
+// func isExported(t reflect.Type) bool {
+// 	if t.Kind() == reflect.Pointer {
+// 		t = t.Elem()
+// 	}
+// 	n := t.Name()
+// 	return len(n) > 0 && !unicode.IsLower(rune(n[0]))
+// }
+
+func Test_checkEmpty(t *testing.T) {
+	db, h, _ := testDB(t)
+	// h.trace = true
+	defer func() {
+		if !t.Failed() {
+			return
+		}
+		h.dump(t)
+	}()
+	pd := &PassiveDevs{}
+	if err := checkEmpty(db, pd); err != nil {
+		t.Fatalf("db must be empty: %s", err)
+	}
+
+	if err := pd.ImportCSV(db, "", []byte(passiveCSV)); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEmpty(db, pd); err == nil {
+		t.Fatal("db must not be empty")
+	}
+
 }

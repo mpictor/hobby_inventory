@@ -35,7 +35,11 @@ func execAdd(ctx context.Context, args []string) error {
 	}
 	defer dbi.Close()
 
-	tbl := args[0]
+	tbl, err := db.ParseCompTbl(args[0])
+	if err != nil {
+		return err
+	}
+
 	vals, err := db.ParamsToRow(dbi, tbl, args[1:])
 	if err != nil {
 		return err

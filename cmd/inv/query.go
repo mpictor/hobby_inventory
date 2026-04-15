@@ -10,8 +10,14 @@ import (
 )
 
 var queryCmd = &ff.Command{
-	Name: "query",
-	Exec: execQuery,
+	Name:      "query",
+	Exec:      execQuery,
+	ShortHelp: "search the given component table and show matches",
+	Usage:     "inv query <table> [parameters...]",
+	LongHelp: `See 'inv table -h' for a list of tables, and 'inv parm -h' for parameter info.
+
+query searches one component table and returns matches.
+`,
 }
 
 func init() { rootCmd.Subcommands = append(rootCmd.Subcommands, queryCmd) }
@@ -24,17 +30,23 @@ func execQuery(ctx context.Context, args []string) error {
 		return err
 	}
 	defer dbi.Close()
-	if len(args) < 2 {
+	if len(args) < 1 {
 		return fmt.Errorf("too few arguments - see help")
 	}
-	tbl := args[0]
 
-	res, err := db.Query(dbi, tbl, args[1:])
-
+	tbl, err := db.ParseCompTbl(args[0])
 	if err != nil {
 		return err
 	}
 
+	res, err := db.Query(dbi, tbl, args[1:])
+	if err != nil {
+		return err
+	}
+	if res.Len() == 0 {
+		return fmt.Errorf("no results")
+	}
+	fmt.Printf("%d results\n", res.Len()) // TODO also query time??
 	render.Verbose = verbose
-	return render.Render(res, db.TblOrder[tbl])
+	return render.Render(res, nil)
 }

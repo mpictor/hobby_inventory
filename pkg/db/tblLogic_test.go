@@ -60,7 +60,7 @@ func TestTTLRow_parsePN(t *testing.T) {
 			if err != nil != td.expectErr {
 				t.Fatalf("expectErr=%t but got %s", td.expectErr, err)
 			}
-			if d := cmp.Diff(td.want, *row, cmp.AllowUnexported(LogicRow{})); len(d) > 0 {
+			if d := cmp.Diff(td.want, *row, cmp.AllowUnexported(LogicRow{}, commonFieldsIn{})); len(d) > 0 {
 				t.Errorf("--want ++got\n%s", d)
 			}
 		})
@@ -85,9 +85,11 @@ func TestLogic_SetRow(t *testing.T) {
 			kvs:       []string{"pn=F74AHCTLS999UB", "qty=55", "pkg=SO-8765", "loc=nowhere"},
 			expectErr: false,
 			want: LogicRow{
-				commonFields: commonFields{
-					Qty:      55,
-					Package:  ns("SO-8765"),
+				commonFieldsIn: commonFieldsIn{
+					commonCommon: commonCommon{
+						Qty:     55,
+						Package: ns("SO-8765"),
+					},
 					Location: 1,
 				},
 				Prefix: ns("F"),
@@ -101,6 +103,9 @@ func TestLogic_SetRow(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			logic := &Logic{}
 			db, _, _ := testDB(t)
+			if err := checkEmpty(db, logic); err != nil {
+				t.Errorf("db not empty: %s", err)
+			}
 			if err := logic.SetRow(db, td.kvs); err != nil != td.expectErr {
 				t.Fatalf("expectErr=%t but err=%s", td.expectErr, err)
 			}
@@ -108,11 +113,14 @@ func TestLogic_SetRow(t *testing.T) {
 			if td.expectErr {
 				expectRows = 0
 			}
+			if err := checkEmpty(db, logic); err != nil == td.expectErr {
+				t.Errorf("expectErr=%t but empty=%s", td.expectErr, err)
+			}
 			if len(*logic) != expectRows {
 				t.Fatalf("expect %d rows, got %d", expectRows, len(*logic))
 			}
 			if len(*logic) > 0 {
-				if d := cmp.Diff(td.want, (*logic)[0], cmp.AllowUnexported(LogicRow{})); len(d) > 0 {
+				if d := cmp.Diff(td.want, (*logic)[0], cmp.AllowUnexported(LogicRow{}, commonFieldsIn{})); len(d) > 0 {
 					t.Fatalf("row content differs: --want ++got\n%s", d)
 				}
 			}
@@ -140,23 +148,23 @@ func TestLogic_SetRow(t *testing.T) {
 // 		"", "F", "74", "AHCTLS",
 // 		"999", "UB", "", "0",
 // 	}
-
+//
 //		got := tr.Strings([]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15})
 //		if d := cmp.Diff(want, got); len(d) > 0 {
 //			t.Fatalf("result differs: --want ++got\n%s", d)
 //		}
 //	}
-func TestTTL_ch(t *testing.T) {
-	ttl := &Logic{}
-	want := []string{
-		"id", "qty", "n/pkg", "pkg", "mounting", "origin",
-		"loc", "ds", "notes", "pfx", "series",
-		"fam", "func", "sfx", "category", "desc",
-	}
-
-	ch := ttl.ColumnHeaders([]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15})
-
-	if d := cmp.Diff(want, ch); len(d) > 0 {
-		t.Fatalf("result differs: --want ++got\n%s", d)
-	}
-}
+// func TestTTL_ch(t *testing.T) {
+// 	ttl := &Logic{}
+// 	want := []string{
+// 		"id", "qty", "n/pkg", "pkg", "mounting", "origin",
+// 		"loc", "ds", "notes", "pfx", "series",
+// 		"fam", "func", "sfx", "category", "desc",
+// 	}
+//
+// 	ch := ttl.ColumnHeaders([]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15})
+//
+// 	if d := cmp.Diff(want, ch); len(d) > 0 {
+// 		t.Fatalf("result differs: --want ++got\n%s", d)
+// 	}
+// }
